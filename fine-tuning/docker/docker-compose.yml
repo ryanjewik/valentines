@@ -1,0 +1,33 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+
+      # optional: lets you rename the model without editing the script
+      - OLLAMA_MODEL_NAME=ryan-mistral-gpu
+      - OLLAMA_MODELFILE=/work/Modelfile.gpu.gguf
+
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./:/work
+
+    # IMPORTANT: docker compose ignores `deploy:` in non-swarm mode.
+    # This is the compose-native way:
+    gpus: all
+
+    # Run our init script (it will start ollama serve + create model if needed)
+    entrypoint: ["/bin/sh", "-lc", "chmod +x /work/ollama-init.sh 2>/dev/null || true; /work/ollama-init.sh"]
+
+    networks:
+      - appnet
+
+volumes:
+  ollama_data:
+
+networks:
+  appnet:

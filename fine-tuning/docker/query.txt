@@ -1,0 +1,61 @@
+to query:
+docker exec -it ollama sh -lc "ollama run ryan-mistral-gpu 'yo say something short'"
+
+if I change the modelfile SYSTEM prompt:
+docker exec -it ollama sh -lc "ollama create ryan-mistral-gpu -f /work/Modelfile.gpu.gguf"
+
+expected reqeust shape:
+{
+  "model": "ryan-mistral-gpu",
+  "prompt": "yo say something short",
+  "system": "optional override system prompt",
+  "template": "optional override prompt template",
+  "context": [1,2,3],
+  "options": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "num_predict": 128,
+    "seed": 42,
+    "stop": ["\nUser 0:", "\nUser 1:"]
+  },
+  "stream": false
+}
+
+
+{
+  "model": "ryan-mistral-gpu",
+  "messages": [
+    { "role": "system", "content": "You are Ryan texting casually..." },
+    { "role": "user", "content": "yo say something short" }
+  ],
+  "options": {
+    "temperature": 0.7,
+    "num_predict": 128,
+    "stop": ["\nUser 0:", "\nUser 1:"]
+  },
+  "stream": false
+}
+
+test:
+curl http://localhost:11434/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "ryan-mistral-gpu",
+    "prompt": "yo say something short",
+    "stream": false
+  }'
+
+curl http://localhost:11434/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "ryan-mistral-gpu",
+    "messages": [
+      {"role":"system","content":"You are Ryan texting casually."},
+      {"role":"user","content":"yo"},
+      {"role":"assistant","content":"what’s good 😄"},
+      {"role":"user","content":"say something short"}
+    ],
+    "stream": false
+  }'
+
+POST http://your-server:11434/api/chat
