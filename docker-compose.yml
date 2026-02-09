@@ -1,3 +1,4 @@
+version: "3.8"
 services:
   ollama:
     image: ollama/ollama:latest
@@ -14,7 +15,7 @@ services:
 
     volumes:
       - ollama_data:/root/.ollama
-      - ./:/work
+      - ./fine-tuning/docker:/work
 
     # IMPORTANT: docker compose ignores `deploy:` in non-swarm mode.
     # This is the compose-native way:
@@ -26,8 +27,22 @@ services:
     networks:
       - appnet
 
-volumes:
-  ollama_data:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: valentines_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    command: ["/bin/sh", "-lc", "npm install --legacy-peer-deps >/dev/null 2>&1 || true; npm run dev -- --host 0.0.0.0"]
 
 networks:
   appnet:
+
+volumes:
+  ollama_data:
