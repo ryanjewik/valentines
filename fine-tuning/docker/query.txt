@@ -53,9 +53,29 @@ curl http://localhost:11434/api/chat \
       {"role":"system","content":"You are Ryan texting casually."},
       {"role":"user","content":"yo"},
       {"role":"assistant","content":"what’s good 😄"},
-      {"role":"user","content":"say something short"}
+      {"role":"user","content":"wyd doin today?"}
     ],
     "stream": false
   }'
 
 POST http://your-server:11434/api/chat
+
+
+merge script run:
+docker run --rm -it --gpus all `
+  -v ${PWD}:/work `
+  -w /work `
+  pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime `
+  bash -lc "pip install -U pip &&
+            pip install transformers==4.48.0 peft==0.18.1 accelerate safetensors sentencepiece huggingface_hub &&
+            rm -rf /work/merged-mistral-hf-gpu &&
+            python /work/merge_lora_gpu.py"
+
+docker run --rm -it -v ${PWD}:/work --entrypoint bash ghcr.io/ggml-org/llama.cpp:full -lc `
+"python3 /app/convert_hf_to_gguf.py /work/merged-mistral-hf-gpu --outtype f16 --outfile /work/merged-mistral.gpu.gguf"
+
+docker run --rm -it -v ${PWD}:/work ghcr.io/ggml-org/llama.cpp:full `
+  --quantize /work/merged-mistral.gpu.gguf /work/merged-mistral.gpu.Q4_K_M.gguf Q4_K_M
+
+docker exec -it ollama sh -lc "ollama create ryan-mistral-gpu -f /work/Modelfile.gpu.gguf"
+docker exec -it ollama sh -lc "ollama run ryan-mistral-gpu 'yo are we cooked?'"
