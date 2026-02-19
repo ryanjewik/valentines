@@ -8,6 +8,7 @@ import MessageArea from './components/messageArea'
 type Message = {
   id?: string | number
   text?: string
+  image?: string
   sender: string
   loading?: boolean
 }
@@ -32,7 +33,57 @@ function App() {
     "Who is more attractive, a man who can explain the difference between a catapult and a trebuchet, or a man who can't?"
   ]
 
-  // (instructions array removed — testing mode uses template replies directly)
+  // Dynamic instruction builder — evaluates conditionals in JS so the model
+  // only gets a simple, direct instruction (no if/else for a 7B to fumble)
+  const getInstruction = (qIdx: number, userText: string): string => {
+    const lower = userText.trim().toLowerCase()
+    switch (qIdx) {
+      case 0:
+        return lower.includes('savana')
+          ? `Say "savana?? that's literally the cutest name ever" and be a little flirty. Example: "omg savana?? that's literally the cutest name ever 🥰😍"`
+          : `Say hi, repeat her name "${userText.trim()}", and say it's a nice name. Example: "hey ${userText.trim()}!! that's such a cool name 😊✨"`
+      case 1:
+        return `Comment positively on how they start their day with "${userText.trim()}". Example: "${userText.trim()}?? honestly same that's elite morning energy 😂🙌"`
+      case 2:
+        return lower.includes('late')
+          ? `Say "somehow I knew that..." and joke about being late. Example: "somehow I knew that... 😭💀 being late is literally my worst nightmare too"`
+          : lower.includes('height') || lower.includes('tall')
+          ? `Say you totally relate to fearing heights. Example: "omg heights are terrifying fr like why would anyone go up there 😭🫣"`
+          : `React to their fear and say something relatable. Example: "honestly both are scary I feel you on that 😂😭"`
+      case 3:
+        return lower.includes('purple')
+          ? `Say "great minds think alike" because purple is your favorite too. Example: "purple?? great minds think alike that's my fav too 😍💜"`
+          : `Joke that you totally pictured her as a PURPLE person. You MUST mention purple. Example: "wait not purple?? I totally had you pegged as a PURPLE person 😂💜"`
+      case 4:
+        return lower.includes('panko')
+          ? `Say you've heard SO many good things about panko. You MUST mention panko by name. Example: "omg panko?? I've heard so many good things about him 🥺💕 what a cutie"`
+          : `React warmly to their pet answer and compliment their pet names. Example: "awww that's so cute I can't handle it 🥺💕"`
+      case 5: {
+        const food = lower.includes('sushi') ? 'sushi' : lower.includes('taco') ? 'tacos' : lower.includes('pizza') ? 'pizza' : lower.includes('burger') ? 'burgers' : userText.trim()
+        return `Say "yummers" and praise their choice of ${food}. Example: "yummers!! ${food} is literally the best last meal choice 🤤😋"`
+      }
+      case 6:
+        return `Say they seem like a morpeko type of girl and react to their choice. Example: "ooo I could totally see that but lowkey you give morpeko vibes 😂⚡"`
+      case 7:
+        return (lower.includes('water') && lower.indexOf('water') < (lower.indexOf('tooth') === -1 ? Infinity : lower.indexOf('tooth')))
+          ? `Say "how does anybody do the other way?!" because water first is correct. Example: "EXACTLY how does anybody do the other way?!?! 😤🙌 water first gang"`
+          : `Say "the audacity" and "I can still be friends with you but just know... you are incorrect". Example: "the AUDACITY 😤 I can still be friends with you but just know... you are incorrect 😂"`
+      case 8:
+        return `Playfully question their choice then say "what's wrong with the other???". Example: "wait really?? I respect it but like... what's wrong with the other??? 😂🤔"`
+      case 9:
+        return lower.includes('taiwan')
+          ? `Say "oops haha" about Taiwan in a playful way. Example: "oops haha 😅🫣 I mean... great choice tho"`
+          : lower.includes('china')
+          ? `Say "CHINA NUMBA 1!!!" enthusiastically. Example: "CHINA NUMBA 1!!! 🇨🇳🔥 let's gooo"`
+          : `React positively and say you love that place too. Example: "ooo great choice I love that place too 🔥🌏"`
+      case 10:
+        return (lower.includes("can't") || lower.includes('cant') || lower.includes('second'))
+          ? `Say they're wrong and the first man (who knows about trebuchets) is superior. Example: "nah you're wrong the trebuchet man is SUPERIOR 🏆💪 knowledge is power"`
+          : `Say the trebuchet man is superior and trebuchets are objectively better. Example: "CORRECT the trebuchet man is SUPERIOR 🏆💪 trebuchets are objectively better in every way"`
+      default:
+        return `React casually and positively. Example: "haha nice answer tbh 😄✨"`
+    }
+  }
 
   // Reply builder — creates a contextual reply from the user's actual answer.
   // Multiple variants per question for variety on replays.
@@ -56,14 +107,19 @@ function App() {
       ])
       case 2: {
         const isLate = aLower.includes('late')
+        const isHeight = aLower.includes('height') || aLower.includes('tall')
         return isLate ? pick([
           `omg same, being late gives me so much anxiety 😭`,
           `being late is the WORST I literally can't function 😩`,
           `ok being late is scarier than heights and I will die on this hill`,
-        ]) : pick([
+        ]) : isHeight ? pick([
           `heights are terrifying fr, like why would I go up there 😭`,
           `nah heights are no joke, I get dizzy just looking down 💀`,
           `omg same, I avoid tall things at ALL costs`,
+        ]) : pick([
+          `lol fair both are pretty scary tbh 😂`,
+          `honestly valid, they're both terrifying in different ways`,
+          `ok mood, I'd probably say both too ngl`,
         ])
       }
       case 3: return pick([
@@ -145,11 +201,15 @@ function App() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(-1)
   const currentQuestionIndexRef = useRef<number>(-1)
   const [completed, setCompleted] = useState(false)
+  const [popup, setPopup] = useState<'none' | 'results' | 'valentines'>('none')
+  const [showHearts, setShowHearts] = useState(false)
+  const [hearts, setHearts] = useState<{id: number, left: number, delay: number, size: number, emoji: string}[]>([])
 
   useEffect(() => { testingRef.current = testing }, [testing])
   useEffect(() => { currentQuestionIndexRef.current = currentQuestionIndex }, [currentQuestionIndex])
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const renaiRef = useRef<HTMLAudioElement | null>(null)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
 
   const cleanReplyText = (s: string | null | undefined): string | null => {
@@ -186,8 +246,8 @@ function App() {
     if (!answer.trim()) return
     const lower = answer.trim().toLowerCase()
 
-    // start test shortcut
-    if (lower === 'start' && !testingRef.current) {
+    // start test — only exact keywords, not greetings
+    if (!testingRef.current && /^(start|begin)!*$/i.test(lower)) {
       setTesting(true)
       setCurrentQuestionIndex(0)
       setMessages((prev) => [...prev, { id: 'q-0', text: questions[0], sender: 'bot' }])
@@ -208,15 +268,86 @@ function App() {
     setAnswer("")
 
     try {
-      // ─── TESTING MODE: use template replies (model is unreliable) ───
+      // ─── TESTING MODE: model response with fallback safety net ───
       if (testingRef.current) {
         const qIdx = currentQuestionIndexRef.current
         const userText = String(userMessage.text || '')
+        const instruction = getInstruction(qIdx, userText)
+        const question = questions[qIdx] || ''
+        const fallback = buildReply(qIdx, userText)
 
-        // Add a small random delay (300-800ms) so it feels like typing
-        await new Promise(r => setTimeout(r, 300 + Math.random() * 500))
+        const systemPrompt = `You are Ryan, a fun guy texting a friend during a personality test. You MUST use at least 2-3 emojis in every reply. Keep replies to 1-2 short casual sentences. Text like a gen-z person. Never use brackets, labels, or tags.`
 
-        const reply = buildReply(qIdx, userText)
+        const userPrompt = [
+          `Question: "${question}"`,
+          `Her answer: "${userText}"`,
+          ``,
+          `IMPORTANT - You MUST follow this instruction exactly:`,
+          `${instruction}`,
+          ``,
+          `Use 2-3 emojis. Keep it to 1-2 sentences. If her answer is vague, tease her and pick for her.`,
+        ].join('\n')
+
+        let reply = fallback // default to fallback if anything goes wrong
+
+        try {
+          const requestBody = {
+            model: 'ryan-mistral-gpu',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            stream: false,
+            options: {
+              temperature: 0.55,
+              top_p: 0.75,
+              num_predict: 60,
+              repeat_penalty: 1.25,
+              top_k: 40,
+            },
+          }
+          console.debug('OLLAMA request (testing)', requestBody)
+
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          })
+
+          if (res.ok) {
+            const data = await res.json()
+            console.debug('OLLAMA response raw (testing)', data)
+
+            let modelReply = extractText(data) || ''
+            modelReply = modelReply
+              .replace(/^\s*(?:Ryan|Assistant|Bot|User)\s*:\s*/gim, '')
+              .replace(/\[[^\]]{0,30}\]/g, '')
+              .replace(/replied as\s*:?\s*/gi, '')
+              .replace(/answer\s*:\s*/gi, '')
+              .replace(/^\.\s*/gm, '')
+              .replace(/\b\w+\.(?:com|org|net|io|co|me)\b/gi, '')
+              .replace(/^"+|"+$/g, '')
+              .replace(/^'+|'+$/g, '')
+              .trim()
+
+            // Take only first 1-2 sentences
+            const sentences = modelReply.match(/[^.!?]+[.!?]*/g)
+            if (sentences && sentences.length > 2) {
+              modelReply = sentences.slice(0, 2).join('').trim()
+            }
+
+            // Quick junk check — catch SMS artifacts and inappropriate content
+            const junk = /personal information|\bverb\b.*\bnoun\b|📱📱|verification code|\bwikimedia\b|\bmember since\b|\bbikini\b|\bsexy\b|\bnaked\b|\bundress/i.test(modelReply)
+
+            if (modelReply && modelReply.length >= 3 && !junk) {
+              reply = modelReply
+            } else {
+              console.warn('Model reply junky, using fallback:', modelReply)
+            }
+          }
+        } catch (e) {
+          console.warn('Model call failed, using fallback:', e)
+        }
 
         // Show the bot reply
         setMessages((prev) => prev.map(m =>
@@ -252,15 +383,34 @@ function App() {
       }
 
       // ─── NORMAL (non-testing) MODE: free chat ───
-      // Filter to only real text messages (skip question prompts, loading placeholders, system)
-      const chatMessages = [...messages, userMessage].filter((m: any) => m.text && !m.loading)
+      // Filter out quiz prompts, welcome messages, and loading placeholders
+      const chatMessages = [...messages, userMessage].filter((m: any) => {
+        if (!m.text || m.loading) return false
+        if (typeof m.id === 'string' && (m.id.startsWith('q-') || m.id === 'done')) return false
+        if (/personality test|say.*start/i.test(m.text || '')) return false
+        return true
+      })
       const recent = chatMessages.slice(-20)
-      const apiMessages = recent.map((m: any) => ({
-        role: m.sender === 'user' ? 'user' : 'assistant',
-        content: m.text || ''
-      }))
+      const apiMessages = [
+        { role: 'system', content: 'You are Ryan, a chill guy texting casually with a friend. Keep replies short and natural. Use slang and emojis sometimes.' },
+        ...recent.map((m: any) => ({
+          role: m.sender === 'user' ? 'user' : 'assistant',
+          content: m.text || ''
+        }))
+      ]
 
-      const requestBody = { model: 'ryan-mistral-gpu', messages: apiMessages, stream: false }
+      const requestBody = {
+        model: 'ryan-mistral-gpu',
+        messages: apiMessages,
+        stream: false,
+        options: {
+          temperature: 0.6,
+          top_p: 0.8,
+          num_predict: 60,
+          repeat_penalty: 1.2,
+          top_k: 50,
+        },
+      }
       console.debug('OLLAMA request', requestBody)
 
       const res = await fetch('/api/chat', {
@@ -278,7 +428,17 @@ function App() {
       console.debug('OLLAMA response raw', data)
 
       let reply = extractText(data) || 'Sorry, no reply from model.'
-      reply = reply.replace(/^\s*(?:Ryan|Assistant|Bot)\s*:\s*/gim, '').trim()
+      reply = reply
+        .replace(/^\s*(?:Ryan|Assistant|Bot|User)\s*:\s*/gim, '')
+        .replace(/\[[^\]]{0,30}\]/g, '')
+        .replace(/\b\w+\.(?:com|org|net|io|co|me)\b/gi, '')
+        .trim()
+
+      // Truncate to first 2-3 sentences
+      const sentences = reply.match(/[^.!?]+[.!?]*/g)
+      if (sentences && sentences.length > 3) {
+        reply = sentences.slice(0, 3).join('').trim()
+      }
 
       setMessages((prev) => prev.map(m =>
         m.id === loadingBotMessage.id ? { ...m, loading: false, text: reply } : m
@@ -297,14 +457,15 @@ function App() {
   }
 
   const showResults = () => {
-    const userAnswers = messages.filter(m => m.sender === 'user').map(m => m.text || '')
-    const summary = questions.map((q, i) => `Q${i+1}: ${q}\nA: ${userAnswers[i] || '(no answer)'}\n`).join('\n')
-    alert(`Personality test results:\n\n${summary}`)
+    setPopup('results')
   }
 
   useEffect(() => {
     audioRef.current = new Audio('/sounds/yoshi-tongue.mp3')
     audioRef.current.load()
+    renaiRef.current = new Audio('/sounds/renai.mp4')
+    renaiRef.current.loop = true
+    renaiRef.current.load()
     if (messagesScrollRef.current) {
       const el = messagesScrollRef.current
       const target = Math.floor(el.scrollHeight * 0.25)
@@ -355,6 +516,95 @@ function App() {
             {completed && (
               <div className="mb-2 flex justify-center">
                 <Button onClick={showResults}>See Results</Button>
+              </div>
+            )}
+
+            {/* Results popup */}
+            {popup === 'results' && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPopup('none')}>
+                <div className="relative flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+                  <img src="/images/results.png" alt="Results" className="max-w-[90vw] max-h-[75vh] rounded-2xl shadow-2xl object-contain" />
+                  <Button
+                    className="mt-4 px-8 py-3 text-lg bg-pink-500 hover:bg-pink-600 text-white rounded-full shadow-lg"
+                    onClick={() => setPopup('valentines')}
+                  >
+                    Next ➡️
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Valentines popup */}
+            {popup === 'valentines' && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPopup('none')}>
+                <div className="relative flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+                  <img src="/images/valentines.png" alt="Will you be my Valentine?" className="max-w-[90vw] max-h-[70vh] rounded-2xl shadow-2xl object-contain" />
+                  <div className="mt-4 flex gap-4">
+                    <Button
+                      className="px-8 py-3 text-lg bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg"
+                      onClick={() => {
+                        setPopup('none')
+                        setMessages((prev) => [
+                          ...prev,
+                          { text: "She said YES!! 🎉💕", sender: 'bot' },
+                          { image: '/images/snoopy.gif', sender: 'bot' },
+                        ])
+                        // Play renai music on loop
+                        if (renaiRef.current) {
+                          renaiRef.current.currentTime = 0
+                          void renaiRef.current.play().catch(() => {})
+                        }
+                        // Start infinite hearts
+                        setShowHearts(true)
+                        const spawnHearts = () => {
+                          const heartEmojis = ['💕', '❤️', '💖', '💗', '💓', '🩷', '💞', '💘', '💝', '🥰']
+                          setHearts(Array.from({ length: 30 }, (_, i) => ({
+                            id: Date.now() + i,
+                            left: Math.random() * 100,
+                            delay: Math.random() * 3,
+                            size: 16 + Math.random() * 32,
+                            emoji: heartEmojis[Math.floor(Math.random() * heartEmojis.length)]
+                          })))
+                        }
+                        spawnHearts()
+                        const heartInterval = setInterval(spawnHearts, 3500)
+                        // Store interval so it runs forever (no cleanup needed - runs until page close)
+                        ;(window as any).__heartInterval = heartInterval
+                      }}
+                    >
+                      Yes 💕
+                    </Button>
+                    <Button
+                      className="px-8 py-3 text-lg bg-red-400 hover:bg-red-500 text-white rounded-full shadow-lg"
+                      onClick={() => {
+                        alert('Try again 😊')
+                      }}
+                    >
+                      No 😢
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Falling hearts overlay */}
+            {showHearts && (
+              <div className="fixed inset-0 z-[100] pointer-events-none overflow-hidden">
+                {hearts.map((h) => (
+                  <span
+                    key={h.id}
+                    className="absolute animate-fall"
+                    style={{
+                      left: `${h.left}%`,
+                      top: '-10%',
+                      fontSize: `${h.size}px`,
+                      animationDelay: `${h.delay}s`,
+                      animationDuration: `${2.5 + Math.random() * 2}s`,
+                    }}
+                  >
+                    {h.emoji}
+                  </span>
+                ))}
               </div>
             )}
 

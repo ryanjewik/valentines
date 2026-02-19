@@ -72,7 +72,7 @@ docker run --rm -it --gpus all `
             python /work/merge_lora_gpu.py"
 
 docker run --rm -it -v ${PWD}:/work --entrypoint bash ghcr.io/ggml-org/llama.cpp:full -lc `
-"python3 /app/convert_hf_to_gguf.py /work/merged-mistral-hf-gpu --outtype f16 --outfile /work/merged-mistral.gpu.gguf"
+  "python3 /app/convert_hf_to_gguf.py /work/merged-mistral-hf-gpu --outtype f16 --outfile /work/merged-mistral.gpu.gguf"
 
 docker run --rm -it -v ${PWD}:/work ghcr.io/ggml-org/llama.cpp:full `
   --quantize /work/merged-mistral.gpu.gguf /work/merged-mistral.gpu.Q4_K_M.gguf Q4_K_M

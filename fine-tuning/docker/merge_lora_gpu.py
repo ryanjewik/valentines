@@ -3,8 +3,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
-BASE = "mistralai/Mistral-7B-v0.1"
-ADAPTER_DIR = "/work/ryan-lora/checkpoint-5936"
+BASE = "mistralai/Mistral-7B-Instruct-v0.2"
+ADAPTER_DIR = "/work/ryan-lora/checkpoint-1875"
 OUT_DIR = "/work/merged-mistral-hf-gpu"
 
 os.makedirs(OUT_DIR, exist_ok=True)

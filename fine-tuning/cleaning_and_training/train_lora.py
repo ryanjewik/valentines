@@ -2,9 +2,9 @@ import random
 import torch
 
 from datasets import load_dataset, Dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 
 
 # ========= Config =========
@@ -26,9 +26,10 @@ mix_mode = "weighted"
 # 0.25 means 1 SMS example for every 4 OASST examples.
 sms_ratio = 0.25
 
-# Optional caps to keep training fast (set None for unlimited)
-max_sms = None       # e.g. 5000
-max_oasst = None     # e.g. 20000
+# Caps: RTX 2080 (8GB) can handle ~10-15K examples in an hour.
+# Set lower for faster iteration; None for unlimited.
+max_sms = 3000
+max_oasst = 12000
 
 # ========= 4-bit loading =========
 bnb_config = BitsAndBytesConfig(
@@ -50,12 +51,14 @@ model = AutoModelForCausalLM.from_pretrained(
     dtype=torch.float16,
 )
 model.config.use_cache = False
+print(f"Model loaded — GPU mem: {torch.cuda.memory_allocated()/1024**3:.1f} GB", flush=True)
 
 
 # ========= Load SMS dataset =========
 def load_sms_dataset(path: str):
-    # Expect JSONL rows shaped like: {"messages": [...]}
+    print(f"Loading SMS data from {path}...", flush=True)
     ds = load_dataset("json", data_files=path)["train"]
+    print(f"  -> {len(ds)} SMS examples loaded", flush=True)
     return ds
 
 
@@ -67,17 +70,20 @@ def load_oasst_pairs(dataset_name: str, only_lang: str = "en"):
       - joining them with their parent prompter message using parent_id -> message_id
     Source: HF dataset docs describe reconstructing trees via parent_id/message_id.
     """
+    print(f"Loading {dataset_name}...", flush=True)
     ds = load_dataset(dataset_name)
 
     # Use train split only for training (you can add validation later)
     train = ds["train"]
+    print(f"  -> {len(train)} total rows, filtering to lang={only_lang}...", flush=True)
 
     # Keep only roles + language we care about (reduces join size)
     # OASST roles are typically "assistant" and "prompter".
     keep = train.filter(lambda x: x.get("lang") == only_lang and x.get("role") in ("assistant", "prompter"))
+    print(f"  -> {len(keep)} rows after lang/role filter", flush=True)
 
     # Build lookup from message_id -> (role, text)
-    # 84k rows is fine to materialize.
+    print("  -> Building message lookup...", flush=True)
     msg_by_id = {}
     for row in keep:
         mid = row.get("message_id")
@@ -86,6 +92,7 @@ def load_oasst_pairs(dataset_name: str, only_lang: str = "en"):
         msg_by_id[mid] = (row.get("role"), row.get("text", ""))
 
     # Build prompt/response pairs from assistant rows
+    print("  -> Building prompt/response pairs...", flush=True)
     pairs = []
     for row in keep:
         if row.get("role") != "assistant":
@@ -116,6 +123,7 @@ def load_oasst_pairs(dataset_name: str, only_lang: str = "en"):
             ]
         })
 
+    print(f"  -> {len(pairs)} pairs built", flush=True)
     return Dataset.from_list(pairs)
 
 
@@ -156,51 +164,64 @@ def format_example(example):
 
 
 # ========= Load + mix =========
-sms_ds = load_sms_dataset(sms_path)
-oasst_ds = load_oasst_pairs(oasst_name, only_lang=lang)
-mixed_ds = balance_and_mix(sms_ds, oasst_ds, mode=mix_mode)
+def main():
+    # Load + mix datasets
+    sms_ds = load_sms_dataset(sms_path)
+    oasst_ds = load_oasst_pairs(oasst_name, only_lang=lang)
+    mixed_ds = balance_and_mix(sms_ds, oasst_ds, mode=mix_mode)
 
-print(f"SMS examples: {len(sms_ds)}")
-print(f"OASST pairs (lang={lang}): {len(oasst_ds)}")
-print(f"Mixed examples: {len(mixed_ds)}")
+    print(f"SMS examples: {len(sms_ds)}")
+    print(f"OASST pairs (lang={lang}): {len(oasst_ds)}")
+    print(f"Mixed examples: {len(mixed_ds)}")
+
+    # ========= LoRA config =========
+    peft_config = LoraConfig(
+        r=16,                # higher rank = more capacity for style without forgetting
+        lora_alpha=32,       # keep alpha = 2*r (standard scaling)
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],  # all attention heads
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+
+    training_args = SFTConfig(
+        output_dir="./ryan-lora",
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        num_train_epochs=1,               # 1 epoch — less overfitting on SMS junk
+        logging_steps=25,
+        save_strategy="epoch",
+        logging_first_step=True,
+        learning_rate=2e-5,               # lower LR preserves instruction-following
+        fp16=False,
+        bf16=False,
+        optim="paged_adamw_8bit",
+        gradient_checkpointing=True,
+        torch_compile=False,
+        report_to="none",
+        max_length=512,                  # cap sequence length to save VRAM
+    )
+
+    print("Creating trainer (formatting + tokenizing dataset)...", flush=True)
+    trainer = SFTTrainer(
+        model=model,
+        train_dataset=mixed_ds,
+        peft_config=peft_config,
+        args=training_args,
+        formatting_func=format_example,
+    )
+    print("Trainer ready!", flush=True)
+
+    print(f"Starting training — this will take a while...", flush=True)
+    print(f"  Effective batch size: {training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps}", flush=True)
+    est_steps = len(mixed_ds) // (training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps)
+    print(f"  Est. {est_steps} steps @ ~1s/step ≈ {est_steps//60}min", flush=True)
+    trainer.train()
+
+    model.save_pretrained("./ryan-lora")
+    tokenizer.save_pretrained("./ryan-lora")
+    print("Training complete and model saved to ./ryan-lora")
 
 
-# ========= LoRA config =========
-peft_config = LoraConfig(
-    r=16,                # higher rank = more capacity for style without forgetting
-    lora_alpha=32,       # keep alpha = 2*r (standard scaling)
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],  # all attention heads
-    lora_dropout=0.05,
-    bias="none",
-    task_type="CAUSAL_LM",
-)
-
-training_args = TrainingArguments(
-    output_dir="./ryan-lora",
-    per_device_train_batch_size=2,
-    gradient_accumulation_steps=4,
-    num_train_epochs=1,               # 1 epoch — less overfitting on SMS junk
-    logging_steps=10,
-    save_strategy="epoch",
-    learning_rate=2e-5,               # lower LR preserves instruction-following
-    fp16=False,
-    bf16=False,
-    optim="paged_adamw_8bit",
-    gradient_checkpointing=True,
-    torch_compile=False,
-    report_to="none",
-)
-
-trainer = SFTTrainer(
-    model=model,
-    train_dataset=mixed_ds,
-    peft_config=peft_config,
-    args=training_args,
-    formatting_func=format_example,
-)
-
-trainer.train()
-
-model.save_pretrained("./ryan-lora")
-tokenizer.save_pretrained("./ryan-lora")
-print("Training complete and model saved to ./ryan-lora")
+if __name__ == "__main__":
+    main()

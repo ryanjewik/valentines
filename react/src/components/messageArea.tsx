@@ -3,6 +3,7 @@ import React from 'react'
 type Message = {
     id?: string | number
     text?: string
+    image?: string
     sender: string
     loading?: boolean
 }
@@ -23,6 +24,8 @@ const MessageArea: React.FC<Props> = ({ message }) => {
                         <img src="/images/cat.webp" alt="loading" className="w-10 h-10 rounded-md animate-pulse" />
                         <span>Thinking…</span>
                     </div>
+                ) : message.image ? (
+                    <img src={message.image} alt="" className="max-w-full rounded-lg" />
                 ) : (
                     <>{message.text}</>
                 )}
